@@ -1,0 +1,74 @@
+This output shows the steps Kubernetes completed to run an NGINX Pod successfully.
+
+1. Scheduled
+
+The Kubernetes scheduler selected the worker node:
+
+k8s-w2.kekambar.internal
+
+The Pod name is:
+
+nginx-558856cfbb-pmwzq
+
+The word "default" means the Pod is running in the Kubernetes Namespace named "default".
+
+2. Pulling
+
+The kubelet on k8s-w2 started downloading the container image:
+
+nginx:1.21
+
+The kubelet is the Kubernetes agent running on every node.
+
+3. Pulled
+
+The image was downloaded successfully.
+
+Download time: approximately 8.5 seconds
+Image size: 56,746,739 bytes, approximately 54 MB
+
+The image is now stored in the containerd image cache on k8s-w2. If another Pod on the same node uses nginx:1.21, Kubernetes may not need to download it again.
+
+4. Created
+
+The kubelet asked containerd to create a container from the nginx:1.21 image.
+
+During this step, containerd prepares the container environment, including:
+
+- Linux namespaces for isolation
+- Linux cgroups for resource management
+- Container filesystem
+- Container networking
+
+5. Started
+
+The NGINX container started successfully, and the NGINX process is now running inside the Pod.
+
+Complete process:
+
+You create a Pod or Deployment
+        |
+        v
+The scheduler selects k8s-w2
+        |
+        v
+The kubelet on k8s-w2 receives the Pod instructions
+        |
+        v
+The kubelet asks containerd to download nginx:1.21
+        |
+        v
+containerd creates the container
+        |
+        v
+containerd starts the NGINX process
+
+Meaning of the components:
+
+default-scheduler -> selects the node
+kubelet            -> manages the Pod on the node
+containerd         -> creates and starts the container
+nginx:1.21         -> container image
+k8s-w2             -> worker node running the Pod
+
+All events are marked "Normal", so this is a successful and healthy Pod startup.
