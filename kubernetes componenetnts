@@ -1,0 +1,527 @@
+# Kubernetes Components Guide
+
+This guide explains the main components in my Kubernetes lab cluster.
+
+## Cluster Setup
+
+```text
+Control-plane node: k8s-cp1.kekambar.internal
+Worker nodes:       k8s-w1.kekambar.internal
+                    k8s-w2.kekambar.internal
+                    k8s-w3.kekambar.internal
+Container runtime:  containerd
+CNI plugin:         Calico
+```
+
+```text
+                    Kubernetes Cluster
+                           |
+        +------------------+------------------+
+        |                                     |
+Control-plane node                       Worker nodes
+k8s-cp1                                 k8s-w1
+                                        k8s-w2
+                                        k8s-w3
+```
+
+The control plane manages the cluster. Worker nodes run application workloads.
+
+## Control-Plane Components
+
+### kube-apiserver
+
+The Kubernetes API server is the cluster's front door.
+
+When I run:
+
+```sh
+kubectl get pods
+```
+
+`kubectl` communicates with `kube-apiserver`. The API server validates requests, checks permissions, and creates, reads, updates, or deletes Kubernetes resources.
+
+### etcd
+
+`etcd` is Kubernetes' database. It stores the cluster's configuration and desired state, including:
+
+- Nodes
+- Pods
+- Deployments
+- Services
+- Secrets
+- ConfigMaps
+- RBAC permissions
+
+### kube-scheduler
+
+The scheduler chooses which node runs a new Pod.
+
+It considers available CPU and memory, resource requests, node labels, taints, tolerations, and affinity rules.
+
+### kube-controller-manager
+
+The controller manager runs controllers that keep the cluster in the state I requested.
+
+```text
+Desired state: 3 replicas
+          |
+          v
+Actual state: 2 running Pods
+          |
+          v
+Kubernetes creates a replacement Pod
+          |
+          v
+Actual state: 3 running Pods
+```
+
+This process is called reconciliation.
+
+## Node Components
+
+These components run on every Kubernetes node.
+
+### kubelet
+
+The kubelet is the Kubernetes agent on each node. It:
+
+- Receives Pod instructions from the API server
+- Ensures required containers are running
+- Reports node and Pod health
+- Uses the container runtime to start and stop containers
+
+### containerd
+
+`containerd` is the container runtime. It downloads images and runs containers.
+
+Kubernetes talks to containerd using the Container Runtime Interface, or CRI.
+
+```toml
+SystemdCgroup = true
+```
+
+This tells containerd to use systemd for cgroup management. It should match kubelet's systemd cgroup driver to avoid cgroup-driver mismatches.
+
+### kube-proxy
+
+`kube-proxy` runs on each node and implements Kubernetes Service networking. It helps send traffic addressed to a Service to one of that Service's Pods.
+
+### Calico
+
+Calico is the cluster's CNI, or Container Network Interface, plugin.
+
+It provides:
+
+- Pod IP networking
+- Communication between Pods on different nodes
+- Network routing
+- NetworkPolicy enforcement
+
+### calico-node
+
+`calico-node` is Calico's networking agent. It runs as a DaemonSet.
+
+A DaemonSet creates one Pod on every eligible node. With four nodes, Calico normally runs four `calico-node` Pods.
+
+```text
+calico-node-xxxxx  -> k8s-cp1
+calico-node-yyyyy  -> k8s-w1
+calico-node-zzzzz  -> k8s-w2
+calico-node-aaaaa  -> k8s-w3
+```
+
+### calico-kube-controllers
+
+`calico-kube-controllers` watches Kubernetes resources and maintains Calico's networking state. It usually has one or a small number of replicas, not one per node.
+
+## Workload Resources
+
+### Container and Image
+
+A container is a packaged application process. An image is the template used to create it.
+
+Examples:
+
+```text
+nginx:stable
+redis:7
+postgres:16
+```
+
+### Pod
+
+A Pod is Kubernetes' smallest deployable unit. It contains one or more containers that share an IP address, networking, and storage volumes.
+
+Pods are temporary and may be recreated with a different IP address.
+
+### Deployment
+
+A Deployment runs stateless applications and maintains the requested number of replicas.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:stable
+```
+
+### ReplicaSet
+
+A ReplicaSet ensures a specified number of identical Pods exists. Deployments create and manage ReplicaSets automatically.
+
+### DaemonSet
+
+A DaemonSet ensures one copy of a Pod runs on every eligible node. Calico uses it for `calico-node`.
+
+### StatefulSet
+
+A StatefulSet is for stateful applications that need stable names and storage, such as databases.
+
+Example Pod names:
+
+```text
+database-0
+database-1
+database-2
+```
+
+### Job and CronJob
+
+A Job runs a task until it completes, such as a database migration.
+
+A CronJob creates Jobs on a schedule, such as nightly backups.
+
+## Networking
+
+### Service
+
+A Service gives applications a stable IP address and DNS name, even though individual Pod IPs may change.
+
+A Service uses labels to select backend Pods.
+
+```yaml
+selector:
+  app: web
+```
+
+### Service Types
+
+- `ClusterIP`: reachable only inside the cluster.
+- `NodePort`: exposes a port on every node.
+- `LoadBalancer`: requests an external load balancer.
+- `Ingress`: defines HTTP/HTTPS routing rules.
+
+### Ingress and Ingress Controller
+
+An Ingress defines routes such as:
+
+```text
+app.example.internal -> web Service
+api.example.internal -> api Service
+```
+
+An Ingress controller, such as ingress-nginx or Traefik, enforces those routes.
+
+```text
+Browser
+   |
+   v
+Ingress controller
+   |
+   v
+Service
+   |
+   v
+Pod
+   |
+   v
+Container
+```
+
+### CoreDNS
+
+CoreDNS provides DNS inside the cluster. Pods can access a Service by name:
+
+```text
+http://web
+```
+
+The full Service DNS name is:
+
+```text
+web.default.svc.cluster.local
+```
+
+## Configuration and Storage
+
+### Namespace
+
+A Namespace separates resources inside the cluster.
+
+Common namespaces include:
+
+```text
+default
+kube-system
+development
+staging
+production
+```
+
+### ConfigMap and Secret
+
+A ConfigMap stores non-sensitive configuration, such as URLs or log levels.
+
+A Secret stores sensitive data, such as passwords, tokens, and TLS keys.
+
+Important: Kubernetes Secrets are base64-encoded by default. Base64 is not encryption.
+
+### Persistent Storage
+
+```text
+Application Pod -> PVC -> PV -> Storage
+```
+
+- **PersistentVolume (PV):** available cluster storage.
+- **PersistentVolumeClaim (PVC):** an application's request for storage.
+- **StorageClass:** defines how Kubernetes dynamically provisions storage.
+
+## Reliability and Resources
+
+### Readiness Probe
+
+A readiness probe tells Kubernetes when an application is ready for traffic. A Service does not send requests to an unready Pod.
+
+### Liveness Probe
+
+A liveness probe tells Kubernetes whether a container is still working. Repeated failure causes Kubernetes to restart the container.
+
+### Resource Requests and Limits
+
+```yaml
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+```
+
+- **Requests** reserve CPU and memory for scheduling.
+- **Limits** set a maximum allowed CPU or memory usage.
+- Exceeding a memory limit usually results in `OOMKilled`.
+
+### HorizontalPodAutoscaler
+
+A HorizontalPodAutoscaler, or HPA, changes the number of replicas based on metrics such as CPU usage.
+
+### PodDisruptionBudget
+
+A PodDisruptionBudget, or PDB, limits how many replicas can be voluntarily unavailable during maintenance or node upgrades.
+
+## Scheduling
+
+### Labels and Selectors
+
+Labels are key/value metadata:
+
+```text
+app=web
+environment=development
+node-role.kubernetes.io/worker=true
+```
+
+Selectors find resources using labels. A Service selector identifies the Pods that should receive traffic.
+
+### nodeSelector
+
+A `nodeSelector` schedules a Pod only onto nodes with a matching label.
+
+```yaml
+spec:
+  nodeSelector:
+    workload: demo
+```
+
+### Taints and Tolerations
+
+A taint restricts which Pods can run on a node.
+
+A toleration lets a Pod run on a node with a matching taint.
+
+Control-plane nodes are commonly tainted so ordinary applications are scheduled on worker nodes instead.
+
+### Affinity and Anti-Affinity
+
+- **Affinity** places Pods near matching nodes or Pods.
+- **Anti-affinity** spreads Pods away from matching Pods.
+
+Anti-affinity can spread application replicas across `k8s-w1`, `k8s-w2`, and `k8s-w3`.
+
+## Security
+
+### ServiceAccount
+
+A ServiceAccount is an identity used by a Pod when it needs to call the Kubernetes API.
+
+### RBAC
+
+RBAC means Role-Based Access Control. It controls permissions in the cluster.
+
+- **Role:** permissions within one Namespace.
+- **ClusterRole:** permissions across the cluster.
+- **RoleBinding:** assigns a Role.
+- **ClusterRoleBinding:** assigns a ClusterRole.
+
+### NetworkPolicy
+
+A NetworkPolicy controls which Pods are allowed to communicate with each other. Calico can enforce NetworkPolicies.
+
+## Tools
+
+### kubectl
+
+`kubectl` is the Kubernetes command-line client.
+
+```sh
+kubectl get nodes
+kubectl get pods -A
+kubectl get deployments
+kubectl get services
+kubectl describe pod <pod-name>
+kubectl logs <pod-name>
+kubectl get events -A --sort-by=.metadata.creationTimestamp
+```
+
+### YAML Manifests
+
+YAML manifests describe the desired Kubernetes state.
+
+```sh
+kubectl apply -f application.yaml
+kubectl diff -f application.yaml
+kubectl delete -f application.yaml
+```
+
+### Helm
+
+Helm is a package manager for Kubernetes. A Helm chart is a reusable package of Kubernetes manifests.
+
+```sh
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm search repo nginx
+helm template <release-name> <chart>
+```
+
+## The Kubernetes Model
+
+Kubernetes is declarative: I describe the desired state, and Kubernetes works to maintain it.
+
+```text
+I create a Deployment with 3 replicas.
+            |
+            v
+Kubernetes stores the desired state in etcd.
+            |
+            v
+The scheduler selects nodes for Pods.
+            |
+            v
+The kubelet asks containerd to start containers.
+            |
+            v
+Controllers verify that 3 replicas are running.
+            |
+            v
+If a Pod fails, Kubernetes creates a replacement.
+```
+
+```text
+Desired state -> Controllers compare actual state -> Kubernetes corrects differences
+```
+## Is This Enough to Learn Kubernetes?
+
+Yes. The components described in this guide are enough for a strong beginner foundation.
+
+They cover the Kubernetes parts used most often:
+
+- Cluster basics
+- Nodes and control plane
+- Pods, Deployments, ReplicaSets, and DaemonSets
+- Services, CoreDNS, Calico, and Ingress
+- ConfigMaps, Secrets, Persistent Volumes, and PVCs
+- Resource requests, limits, probes, and autoscaling
+- Labels, selectors, taints, and tolerations
+- RBAC and NetworkPolicies
+- `kubectl`, YAML manifests, and Helm
+
+You do not need to learn every Kubernetes component before working with the cluster. Learn the following topics in this order:
+
+1. Pods and Deployments
+2. Services and CoreDNS
+3. Labels and selectors
+4. ConfigMaps and Secrets
+5. Readiness probes, liveness probes, and resource limits
+6. Persistent storage with PVs and PVCs
+7. Ingress
+8. RBAC and NetworkPolicies
+9. Helm and monitoring
+
+## Components to Learn Later
+
+These are useful after the fundamentals:
+
+- **CSI driver:** Connects Kubernetes to a storage provider and creates Persistent Volumes.
+- **Admission controller:** Validates or changes API requests before Kubernetes accepts them.
+- **CustomResourceDefinition (CRD):** Lets software add new Kubernetes resource types.
+- **Operator:** A controller that automates a complex application, such as a database.
+- **Metrics Server:** Provides CPU and memory metrics for `kubectl top` and the HorizontalPodAutoscaler.
+- **Prometheus and Grafana:** Collect, visualize, and alert on cluster and application metrics.
+- **MetalLB:** Provides `LoadBalancer` Services in a home-lab or bare-metal cluster.
+- **cert-manager:** Automates TLS certificate management.
+- **Argo CD or Flux:** Deploy Kubernetes manifests from a Git repository using GitOps.
+
+## Recommended First Exercise
+
+Deploy a three-replica NGINX application and expose it with a `ClusterIP` Service.
+
+This demonstrates how these components work together:
+
+```text
+Deployment
+    |
+    v
+ReplicaSet creates Pods
+    |
+    v
+Scheduler selects worker nodes
+    |
+    v
+kubelet asks containerd to start containers
+    |
+    v
+Calico provides Pod networking
+    |
+    v
+Service sends traffic to matching Pods
+    |
+    v
+CoreDNS lets other Pods find the Service by name
+```
+
+This one exercise makes the relationship between `Deployment`, `Pod`, `Service`, `CoreDNS`, and `Calico` concrete.
